@@ -1,12 +1,13 @@
 "use client"
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, MutableRefObject } from 'react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import * as d3 from 'd3'
+import { Simulation, SimulationNodeDatum } from 'd3-force'
 
 const ROOM_CLASS = {
   "living_room": 1, "kitchen": 2, "bedroom": 3, "bathroom": 4, "balcony": 5, "entrance": 6,
@@ -20,9 +21,9 @@ const ROOM_COLORS = {
 }
 
 export function RoomLayoutDesignerComponent() {
-  const [rooms, setRooms] = useState([])
-  const [connectivity, setConnectivity] = useState([])
-  const [boundary, setBoundary] = useState([])
+  const [rooms, setRooms] = useState<Array<{ id: number, x: number, y: number, type: string, number: string, size: string }>>([])
+  const [connectivity, setConnectivity] = useState<{source: number, target: number, value: number}[]>([])
+  const [boundary, setBoundary] = useState<Array<{ x: number, y: number, width: number, height: number }>>([])
   const [currentRoom, setCurrentRoom] = useState({ type: '', number: '', size: '' })
   const connectivitySvgRef = useRef(null)
   const boundaryCanvasRef = useRef(null)
@@ -33,16 +34,16 @@ export function RoomLayoutDesignerComponent() {
     drawBoundary()
   }, [rooms, connectivity, boundary])
 
-  const handleRoomInputChange = (e) => {
+  const handleRoomInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setCurrentRoom({ ...currentRoom, [e.target.name]: e.target.value })
   }
 
   const addRoom = () => {
     if (currentRoom.type && currentRoom.number && currentRoom.size) {
       const newRoom = { ...currentRoom, id: rooms.length, x: Math.random() * 500, y: Math.random() * 500 }
-      setRooms(prevRooms => [...prevRooms, newRoom])
+      setRooms((prevRooms: Array<{ id: number, x: number, y: number, type: string, number: string, size: string }>) => [...prevRooms, newRoom])
       setCurrentRoom({ type: '', number: '', size: '' })
-      updateConnectivity(newRoom)
+      updateConnectivity(newRoom as { id: number, x: number, y: number, type: string, number: string, size: string })
     }
   }
   const convertBoundaryToCorners = (boundaryArray: Array<{x: number, y: number, width: number, height: number}> | null) => {
@@ -151,10 +152,10 @@ export function RoomLayoutDesignerComponent() {
   }
   
 
-  const updateConnectivity = (newRoom) => {
+  const updateConnectivity = (newRoom: {id: number, x: number, y: number, type: string, number: string, size: string}) => {
     setConnectivity(prevConnectivity => [
       ...prevConnectivity,
-      ...rooms.map(room => ({source: room.id, target: newRoom.id, value: -1}))
+      ...rooms.map((room: {id: number, x: number, y: number, type: string, number: string, size: string}) => ({source: room.id, target: newRoom.id, value: -1}))
     ])
   }
 
@@ -167,23 +168,30 @@ export function RoomLayoutDesignerComponent() {
 
     if (!simulationRef.current) {
       simulationRef.current = d3.forceSimulation()
-        .force("link", d3.forceLink().id(d => d.id))
+        .force("link", d3.forceLink().id((d: { id: number }) => d.id))
         .force("charge", d3.forceManyBody().strength(-300))
         .force("center", d3.forceCenter(width / 2, height / 2))
     }
 
-    const simulation = simulationRef.current
+    const simulation = simulationRef.current as unknown as Simulation<
+      SimulationNodeDatum & { id: number },
+      { source: number; target: number; value: number }
+    >
 
-    simulation.nodes(rooms)
-    simulation.force("link").links(connectivity)
+    if (!simulation) {
+      return
+    }
+
+    simulation.nodes(rooms as Array<{ id: number, x: number, y: number, type: string, number: string, size: string }>)
+    simulation.force("link", d3.forceLink(connectivity as Array<{ source: number, target: number, value: number }>))
 
     const link = svg.append("g")
       .selectAll("line")
       .data(connectivity)
       .enter().append("line")
-      .attr("stroke", d => d.value === 1 ? "#4CAF50" : "#ccc")
+      .attr("stroke", (d: { value: number }) => d.value === 1 ? "#4CAF50" : "#ccc")
       .attr("stroke-width", 2)
-      .on("click", (event, d) => {
+      .on("click", (event: any, d: any) => {
         d.value = d.value === 1 ? -1 : 1
         setConnectivity([...connectivity])
       })
@@ -193,7 +201,7 @@ export function RoomLayoutDesignerComponent() {
       .data(rooms)
       .enter().append("circle")
       .attr("r", 20)
-      .attr("fill", d => ROOM_COLORS[d.type])
+      .attr("fill", (d: { type: string }) => ROOM_COLORS[d.type as keyof typeof ROOM_COLORS])
       .call(d3.drag()
         .on("start", dragstarted)
         .on("drag", dragged)
@@ -203,7 +211,7 @@ export function RoomLayoutDesignerComponent() {
       .selectAll("text")
       .data(rooms)
       .enter().append("text")
-      .text(d => d.number)
+      .text((d: { number: string }) => d.number)
       .attr("font-size", "12px")
       .attr("text-anchor", "middle")
       .attr("dy", ".35em")
@@ -211,32 +219,32 @@ export function RoomLayoutDesignerComponent() {
 
     simulation.on("tick", () => {
       link
-        .attr("x1", d => d.source.x || 0)
-        .attr("y1", d => d.source.y || 0)
-        .attr("x2", d => d.target.x || 0)
-        .attr("y2", d => d.target.y || 0)
+        .attr("x1", (d: { source: { x: number, y: number } }) => d.source.x || 0)
+        .attr("y1", (d: { source: { x: number, y: number } }) => d.source.y || 0)
+        .attr("x2", (d: { target: { x: number, y: number } }) => d.target.x || 0)
+        .attr("y2", (d: { target: { x: number, y: number } }) => d.target.y || 0)
 
       node
-        .attr("cx", d => d.x || 0)
-        .attr("cy", d => d.y || 0)
+        .attr("cx", (d: { x: number }) => d.x || 0)
+        .attr("cy", (d: { y: number }) => d.y || 0)
 
       label
-        .attr("x", d => d.x || 0)
-        .attr("y", d => d.y || 0)
+        .attr("x", (d: { x: number }) => d.x || 0)
+        .attr("y", (d: { y: number }) => d.y || 0)
     })
 
-    function dragstarted(event, d) {
+    function dragstarted(event: any, d: any) {
       if (!event.active) simulation.alphaTarget(0.3).restart()
       d.fx = d.x
       d.fy = d.y
     }
 
-    function dragged(event, d) {
+    function dragged(event: any, d: any) {
       d.fx = event.x
       d.fy = event.y
     }
 
-    function dragended(event, d) {
+    function dragended(event: any, d: any) {
       if (!event.active) simulation.alphaTarget(0)
       d.fx = null
       d.fy = null
@@ -247,40 +255,42 @@ export function RoomLayoutDesignerComponent() {
   }
 
   const drawBoundary = () => {
-    const canvas = boundaryCanvasRef.current
+    const canvas = boundaryCanvasRef.current as unknown as HTMLCanvasElement
     if (!canvas) return
 
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
     ctx.fillStyle = 'black'
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
     ctx.fillStyle = 'white'
-    boundary.forEach(rect => {
+    boundary.forEach((rect: { x: number, y: number, width: number, height: number }) => {
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height)
     })
   }
 
   const handleBoundaryDraw = () => {
-    const canvas = boundaryCanvasRef.current
-    let isDrawing = false
-    let startX, startY
+    const canvas = boundaryCanvasRef.current as unknown as HTMLCanvasElement
+    if (!canvas) return
 
-    const startDraw = (e) => {
+    let isDrawing = false
+    let startX: number, startY: number
+
+    const startDraw = (e: MouseEvent) => {
       isDrawing = true
       const rect = canvas.getBoundingClientRect()
       startX = e.clientX - rect.left
       startY = e.clientY - rect.top
     }
 
-    const draw = (e) => {
+    const draw = (e: MouseEvent) => {
       if (!isDrawing) return
       const rect = canvas.getBoundingClientRect()
       const endX = e.clientX - rect.left
       const endY = e.clientY - rect.top
 
-      const ctx = canvas.getContext('2d')
+      const ctx = canvas.getContext('2d') as CanvasRenderingContext2D
       ctx.clearRect(0, 0, canvas.width, canvas.height)
       drawBoundary()
 
@@ -293,14 +303,14 @@ export function RoomLayoutDesignerComponent() {
       )
     }
 
-    const endDraw = (e) => {
+    const endDraw = (e: MouseEvent) => {
       if (!isDrawing) return
       isDrawing = false
       const rect = canvas.getBoundingClientRect()
       const endX = e.clientX - rect.left
       const endY = e.clientY - rect.top
 
-      setBoundary(prevBoundary => [
+      setBoundary((prevBoundary) => [
         ...prevBoundary,
         {
           x: Math.min(startX, endX),
@@ -338,7 +348,13 @@ export function RoomLayoutDesignerComponent() {
         <div className="flex space-x-4 mb-2">
           <div>
             <Label htmlFor="roomType">Room Type</Label>
-            <Select name="type" value={currentRoom.type} onValueChange={(value) => handleRoomInputChange({ target: { name: 'type', value } })}>
+            <Select
+              name="type"
+              value={currentRoom.type}
+              onValueChange={(value) => handleRoomInputChange({ 
+                target: { name: 'type', value }
+              } as React.ChangeEvent<HTMLInputElement>)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select room type" />
               </SelectTrigger>
@@ -432,12 +448,6 @@ export function RoomLayoutDesignerComponent() {
           <div>
             <h3 className="font-semibold">Boundary:</h3>
             <pre className="bg-gray-100 p-2 rounded text-black">{JSON.stringify(convertBoundaryToCorners(boundary), null, 2)}</pre>
-          </div>
-          <div>
-            <h3 className="font-semibold">Corners:</h3>
-            <pre className="bg-gray-100 p-2 rounded text-black">
-              {JSON.stringify(convertBoundaryToCorners(), null, 2)}
-            </pre>
           </div>
         </div>
       </div>
