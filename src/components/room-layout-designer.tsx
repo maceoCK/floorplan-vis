@@ -40,12 +40,17 @@ export function RoomLayoutDesignerComponent() {
 
   const addRoom = () => {
     if (currentRoom.type && currentRoom.number && currentRoom.size) {
-      const newRoom = { ...currentRoom, id: rooms.length, x: Math.random() * 500, y: Math.random() * 500 }
-      setRooms((prevRooms: Array<{ id: number, x: number, y: number, type: string, number: string, size: string }>) => [...prevRooms, newRoom])
+      const newRoom = { 
+        ...currentRoom, 
+        id: rooms.length, // Ensure unique IDs
+        x: Math.random() * 500, 
+        y: Math.random() * 500 
+      }
+      setRooms(prevRooms => [...prevRooms, newRoom])
       setCurrentRoom({ type: '', number: '', size: '' })
-      updateConnectivity(newRoom as { id: number, x: number, y: number, type: string, number: string, size: string })
     }
   }
+
   const convertBoundaryToCorners = (boundaryArray: Array<{x: number, y: number, width: number, height: number}> | null) => {
     if (!boundaryArray || !Array.isArray(boundaryArray)) {
       return [];
@@ -152,13 +157,6 @@ export function RoomLayoutDesignerComponent() {
   }
   
 
-  const updateConnectivity = (newRoom: {id: number, x: number, y: number, type: string, number: string, size: string}) => {
-    setConnectivity(prevConnectivity => [
-      ...prevConnectivity,
-      ...rooms.map((room: {id: number, x: number, y: number, type: string, number: string, size: string}) => ({source: room.id, target: newRoom.id, value: -1}))
-    ])
-  }
-
   const drawConnectivity = () => {
     const svg = d3.select(connectivitySvgRef.current)
     svg.selectAll("*").remove()
@@ -168,8 +166,8 @@ export function RoomLayoutDesignerComponent() {
 
     if (!simulationRef.current) {
       simulationRef.current = d3.forceSimulation()
-        .force("link", d3.forceLink().id((d: { id: number }) => d.id))
-        .force("charge", d3.forceManyBody().strength(-300))
+        .force("link", d3.forceLink().id((d: any) => d.id).distance(200))
+        .force("charge", d3.forceManyBody().strength(-400)) // Adjusted for better spacing
         .force("center", d3.forceCenter(width / 2, height / 2))
     }
 
@@ -182,31 +180,121 @@ export function RoomLayoutDesignerComponent() {
       return
     }
 
-    simulation.nodes(rooms as Array<{ id: number, x: number, y: number, type: string, number: string, size: string }>)
-    simulation.force("link", d3.forceLink(connectivity as Array<{ source: number, target: number, value: number }>))
+    simulation.nodes(rooms)
+    simulation.force("link", d3.forceLink(connectivity).id((d: any) => d.id).distance(150))
 
+    // Draw links
     const link = svg.append("g")
+      .attr("class", "links")
       .selectAll("line")
       .data(connectivity)
       .enter().append("line")
-      .attr("stroke", (d: { value: number }) => d.value === 1 ? "#4CAF50" : "#ccc")
+      .attr("stroke", "#888")
       .attr("stroke-width", 2)
-      .on("click", (event: any, d: any) => {
-        d.value = d.value === 1 ? -1 : 1
-        setConnectivity([...connectivity])
-      })
 
+    // Draw nodes
     const node = svg.append("g")
+      .attr("class", "nodes")
       .selectAll("circle")
       .data(rooms)
       .enter().append("circle")
       .attr("r", 20)
-      .attr("fill", (d: { type: string }) => ROOM_COLORS[d.type as keyof typeof ROOM_COLORS])
-      .call(d3.drag()
-        .on("start", dragstarted)
-        .on("drag", dragged)
-        .on("end", dragended))
+      .attr("fill", (d: { type: string }) => ROOM_COLORS_DARK[d.type as keyof typeof ROOM_COLORS_DARK])
+      // Nodes are not draggable now
+      // .call(d3.drag() ...)
 
+    // Edge drawing variables
+    let isDrawingEdge = false
+    let sourceNode: { id: number, x: number, y: number } | null = null
+    let tempEdge: any = null
+
+    // Event handlers for edge creation
+    node.on("mousedown", function(event: any, d: any) {
+      isDrawingEdge = true
+      sourceNode = d
+
+      // Add a temporary line to follow the cursor
+      tempEdge = svg.append("line")
+        .attr("class", "temp-edge")
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 2)
+        .attr("x1", d.x)
+        .attr("y1", d.y)
+        .attr("x2", d.x)
+        .attr("y2", d.y)
+
+      event.stopPropagation()
+    })
+
+    svg.on("mousemove", function(event: any) {
+      if (isDrawingEdge && tempEdge && sourceNode) {
+        const coords = d3.pointer(event)
+        tempEdge
+          .attr("x1", sourceNode.x)
+          .attr("y1", sourceNode.y)
+          .attr("x2", coords[0])
+          .attr("y2", coords[1])
+      }
+    })
+
+    node.on("mouseup", function(event: MouseEvent, targetNode: { id: number, x: number, y: number }) {
+      if (isDrawingEdge && sourceNode && targetNode && targetNode !== sourceNode) {
+        // Check if edge already exists
+        const edgeExists = connectivity.some(conn =>
+          {
+            if (sourceNode && targetNode) {
+            return (conn.source === sourceNode.id && conn.target === targetNode.id) ||
+              (conn.source === targetNode.id && conn.target === sourceNode.id)
+            }
+            return false
+          }
+        )
+        if (!edgeExists) {
+          // Add the new edge to connectivity
+          setConnectivity(prevConnectivity => {
+            if (sourceNode && targetNode) {
+              return [
+                ...prevConnectivity,
+              { source: sourceNode.id, target: targetNode.id, value: 1 }
+              ]
+            }
+            return prevConnectivity
+          })
+        }
+        else {
+          // Remove the edge from connectivity
+          setConnectivity(prevConnectivity => prevConnectivity.filter(conn =>
+            {
+              if (sourceNode && targetNode) {
+                return !(conn.source === sourceNode.id && conn.target === targetNode.id) &&
+                  !(conn.source === targetNode.id && conn.target === sourceNode.id)
+              }
+              return true
+            }
+          ))
+        }
+      }
+
+      // Remove temporary edge
+      if (tempEdge) tempEdge.remove()
+      isDrawingEdge = false
+      sourceNode = null
+      tempEdge = null
+
+      event.stopPropagation()
+    })
+
+    svg.on("mouseup", function(event: any) {
+      if (isDrawingEdge) {
+        // Remove temporary edge
+        if (tempEdge) tempEdge.remove()
+        isDrawingEdge = false
+        sourceNode = null
+        tempEdge = null
+      }
+    })
+
+    // Draw labels
     const label = svg.append("g")
       .selectAll("text")
       .data(rooms)
@@ -219,36 +307,19 @@ export function RoomLayoutDesignerComponent() {
 
     simulation.on("tick", () => {
       link
-        .attr("x1", (d: { source: { x: number, y: number } }) => d.source.x || 0)
-        .attr("y1", (d: { source: { x: number, y: number } }) => d.source.y || 0)
-        .attr("x2", (d: { target: { x: number, y: number } }) => d.target.x || 0)
-        .attr("y2", (d: { target: { x: number, y: number } }) => d.target.y || 0)
+        .attr("x1", (d: any) => d.source.x || 0)
+        .attr("y1", (d: any) => d.source.y || 0)
+        .attr("x2", (d: any) => d.target.x || 0)
+        .attr("y2", (d: any) => d.target.y || 0)
 
       node
-        .attr("cx", (d: { x: number }) => d.x || 0)
-        .attr("cy", (d: { y: number }) => d.y || 0)
+        .attr("cx", (d: any) => d.x || 0)
+        .attr("cy", (d: any) => d.y || 0)
 
       label
-        .attr("x", (d: { x: number }) => d.x || 0)
-        .attr("y", (d: { y: number }) => d.y || 0)
+        .attr("x", (d: any) => d.x || 0)
+        .attr("y", (d: any) => d.y || 0)
     })
-
-    function dragstarted(event: any, d: any) {
-      if (!event.active) simulation.alphaTarget(0.3).restart()
-      d.fx = d.x
-      d.fy = d.y
-    }
-
-    function dragged(event: any, d: any) {
-      d.fx = event.x
-      d.fy = event.y
-    }
-
-    function dragended(event: any, d: any) {
-      if (!event.active) simulation.alphaTarget(0)
-      d.fx = null
-      d.fy = null
-    }
 
     // Restart the simulation
     simulation.alpha(1).restart()
@@ -338,6 +409,13 @@ export function RoomLayoutDesignerComponent() {
     const cleanup = handleBoundaryDraw()
     return cleanup
   }, [])
+
+  // Dark mode colors
+  const ROOM_COLORS_DARK = {
+    "living_room": "#FF6B6B", "kitchen": "#4ECDC4", "bedroom": "#45B7D1", "bathroom": "#66D7D1", 
+    "balcony": "#95E1D3", "entrance": "#FCE38A", "dining room": "#F38181", "study room": "#A8D8EA", 
+    "storage": "#AA96DA", "front door": "#FCBAD3", "unknown": "#FFFFD2", "interior_door": "#E3FDFD"
+  }
 
   return (
     <div className="p-4 max-w-4xl mx-auto">
