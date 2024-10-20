@@ -27,11 +27,12 @@ export function BoundaryBox({ boundary, setBoundary }: BoundaryBoxProps) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Draw existing boundaries
     ctx.fillStyle = 'black';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = 'white';
     boundary.forEach((rect) => {
+      ctx.fillStyle = 'white';
       ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
     });
   };
@@ -109,7 +110,9 @@ export function BoundaryBox({ boundary, setBoundary }: BoundaryBoxProps) {
         className="border border-gray-300"
       />
       <p className="text-sm text-gray-600 mt-2">Click and drag to draw rectangles</p>
-      <Button onClick={() => setBoundary([])} className="mt-2 bg-slate-700 text-slate-100">Clear Boundary</Button>
+      <Button onClick={() => setBoundary([])} className="mt-2 bg-slate-700 text-slate-100">
+        Clear Boundary
+      </Button>
     </div>
   );
 }

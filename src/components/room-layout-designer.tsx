@@ -11,6 +11,8 @@ import * as d3 from 'd3'
 import { Simulation, SimulationNodeDatum } from 'd3-force'
 import { ConnectivityGraph } from './connectivity-graph'
 import { BoundaryBox } from './boundary-box'
+import dotenv from 'dotenv'
+console.log('Backend URL:', process.env.NEXT_PUBLIC_BACKEND_URL)
 
 const ROOM_CLASS = {
   "living_room": 1, "kitchen": 2, "bedroom": 3, "bathroom": 4, "balcony": 5, "entrance": 6,
@@ -22,6 +24,13 @@ export function RoomLayoutDesignerComponent() {
   const [connectivity, setConnectivity] = useState<{source: number, target: number, value: number}[]>([])
   const [boundary, setBoundary] = useState<Array<{ x: number, y: number, width: number, height: number }>>([])
   const [currentRoom, setCurrentRoom] = useState({ type: '', number: '', size: '' })
+
+  // New states for masks and image
+  const [polygonImage, setPolygonImage] = useState<string | null>(null)
+  const [selfImage, setSelfImage] = useState<string | null>(null)
+  const [genImage, setGenImage] = useState<string | null>(null)
+  const [boundaryImage, setBoundaryImage] = useState<string | null>(null)
+
   const connectivitySvgRef = useRef(null)
   const boundaryCanvasRef = useRef(null)
   const simulationRef = useRef(null)
@@ -46,6 +55,100 @@ export function RoomLayoutDesignerComponent() {
       setRooms(prevRooms => [...prevRooms, newRoom])
       setCurrentRoom({ type: '', number: '', size: '' })
     }
+  }
+
+  const convertBoundaryToCorners = (boundaryArray: Array<{x: number, y: number, width: number, height: number}> | null) => {
+    if (!boundaryArray || !Array.isArray(boundaryArray)) {
+      return [];
+    }
+    let corners = []
+    for (const rect of boundaryArray) {
+      corners.push({x: rect.x, y: rect.y})
+      corners.push({x: rect.x + rect.width, y: rect.y})
+      corners.push({x: rect.x, y: rect.y + rect.height})
+      corners.push({x: rect.x + rect.width, y: rect.y + rect.height})
+    }
+    // remove duplicates
+    corners = corners.filter((corner, index, self) =>
+      index === self.findIndex((t) => (
+        t.x === corner.x && t.y === corner.y
+      )
+    ))
+    // remove corners that are inside a rectangle
+    
+    // Check for intersections between all pairs of edges
+    for (let i = 0; i < boundaryArray.length; i++) {
+      for (let j = i + 1; j < boundaryArray.length; j++) {
+        const rect1 = boundaryArray[i];
+        const rect2 = boundaryArray[j];
+        // Define edges for rect1
+        const edges1 = [
+          [{x: rect1.x, y: rect1.y}, {x: rect1.x + rect1.width, y: rect1.y}],
+          [{x: rect1.x + rect1.width, y: rect1.y}, {x: rect1.x + rect1.width, y: rect1.y + rect1.height}],
+          [{x: rect1.x + rect1.width, y: rect1.y + rect1.height}, {x: rect1.x, y: rect1.y + rect1.height}],
+          [{x: rect1.x, y: rect1.y + rect1.height}, {x: rect1.x, y: rect1.y}]
+        ];
+        // Define edges for rect2
+        const edges2 = [
+          [{x: rect2.x, y: rect2.y}, {x: rect2.x + rect2.width, y: rect2.y}],
+          [{x: rect2.x + rect2.width, y: rect2.y}, {x: rect2.x + rect2.width, y: rect2.y + rect2.height}],
+          [{x: rect2.x + rect2.width, y: rect2.y + rect2.height}, {x: rect2.x, y: rect2.y + rect2.height}],
+          [{x: rect2.x, y: rect2.y + rect2.height}, {x: rect2.x, y: rect2.y}]
+        ];
+        // Check intersections between all edges of rect1 and rect2
+        for (const edge1 of edges1) {
+          for (const edge2 of edges2) {
+            const intersection = findIntersection(edge1[0], edge1[1], edge2[0], edge2[1]);
+            if (intersection) {
+              corners.push(intersection);
+            }
+          }
+        }
+      }
+    }
+    // Remove duplicates
+    corners = corners.filter((corner, index, self) =>
+      index === self.findIndex((t) => (
+        Math.abs(t.x - corner.x) < 1e-10 && Math.abs(t.y - corner.y) < 1e-10
+      ))
+    );
+    corners = corners.filter((corner) => {
+      for (const rect of boundaryArray) {
+        if (corner.x > rect.x && corner.x < rect.x + rect.width &&
+            corner.y > rect.y && corner.y < rect.y + rect.height) {
+          return false
+        }
+      }
+      return true
+    })
+    return corners;
+  };
+
+  function findIntersection(p1: {x: number, y: number}, p2: {x: number, y: number}, p3: {x: number, y: number}, p4: {x: number, y: number}): {x: number, y: number} | null {
+    const denominator =
+      (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+  
+    // If denominator is 0, the lines are parallel
+    if (denominator === 0) {
+      return null;
+    }
+  
+    const t =
+      ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) /
+      denominator;
+    const u =
+      ((p1.x - p3.x) * (p1.y - p2.y) - (p1.y - p3.y) * (p1.x - p2.x)) /
+      denominator;
+  
+    // Check if the intersection point lies on both lines (for line segments)
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+      const intersectionX = p1.x + t * (p2.x - p1.x);
+      const intersectionY = p1.y + t * (p2.y - p1.y);
+      return { x: intersectionX, y: intersectionY };
+    }
+  
+    // No intersection within the line segments
+    return null;
   }
 
   const drawConnectivity = () => {
@@ -206,8 +309,63 @@ export function RoomLayoutDesignerComponent() {
     "storage": "#AA96DA", "front door": "#FCBAD3", "unknown": "#FFFFD2", "interior_door": "#E3FDFD"
   }
 
+  // Function to handle Generate Masks button click
+  const handleGenerateMasks = async () => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/generate_masks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          Rooms: rooms,
+          Connectivity: connectivity,
+          Boundary: boundary,
+        }),
+      })
+      if (response.ok) {
+        try {
+          const data = await response.json()
+          const boundaryDataURL = `data:image/png;base64,${data.boundary_mask_image}`
+          const selfDataURL = `data:image/png;base64,${data.self_mask_image}`
+          const genDataURL = `data:image/png;base64,${data.gen_mask_image}`
+          setBoundaryImage(boundaryDataURL)
+          setSelfImage(selfDataURL)
+          setGenImage(genDataURL)
+        } catch (error) {
+          console.error('Error creating images:', error)
+        }
+      } else {
+        console.error('Failed to generate masks')
+      }
+    } catch (error) {
+      console.error('Error:', error)
+    }
+  }
+
+  // Function to handle Plot Polygons button click
+  const handlePlotPolygons = async (npzFile: File) => {
+    try {
+      const formData = new FormData()
+      formData.append('npz_file', npzFile)
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/plot_polygons`, {
+        method: 'POST',
+        body: formData
+      })
+      if (response.ok) {
+        const blob = await response.blob()
+        const imageUrl = URL.createObjectURL(blob)
+        setPolygonImage(imageUrl)
+      } else {
+        console.error('Failed to plot polygons')
+      }
+    } catch (error) {
+      console.error('Error:', error)
+    }
+  }
+
   return (
-    <div className="p-4 max-w-6xl mx-auto mt-10">
+    <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Room Layout Designer</h1>
 
       <div className="flex">
@@ -328,11 +486,62 @@ export function RoomLayoutDesignerComponent() {
             </div>
             <div>
               <h3 className="font-semibold">Boundary:</h3>
-              <pre className="bg-slate-700 p-2 rounded text-slate-100">{JSON.stringify(boundary, null, 2)}</pre>
+              <pre className="bg-slate-700 p-2 rounded text-slate-100">{JSON.stringify(convertBoundaryToCorners(boundary), null, 2)}</pre>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Buttons to Trigger API Calls */}
+      <div className="mt-6">
+        <Button onClick={handleGenerateMasks} className="bg-blue-500 text-white mr-4">
+          Generate Masks
+        </Button>
+        <label className="bg-green-500 text-white px-4 py-2 rounded cursor-pointer">
+          Upload NPZ File
+          <Input
+            type="file"
+            accept=".npz"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                handlePlotPolygons(e.target.files[0])
+              }
+            }}
+            className="hidden"
+          />
+        </label>
+      </div>
+
+      {/* Display Masks */}
+      {boundaryImage && selfImage && genImage && (
+        <div className="mt-6">
+          <h2 className="text-xl font-semibold mb-2">Generated Masks</h2>
+          <Tabs defaultValue="boundaryMask">
+            <TabsList>
+              <TabsTrigger value="boundaryMask">Boundary Mask</TabsTrigger>
+              <TabsTrigger value="selfMask">Self Mask</TabsTrigger>
+              <TabsTrigger value="genMask">Gen Mask</TabsTrigger>
+            </TabsList>
+            <TabsContent value="boundaryMask">
+              <img src={boundaryImage} alt="Boundary Mask" className="border border-gray-300" />
+            </TabsContent>
+            <TabsContent value="selfMask">
+              <img src={selfImage} alt="Self Mask" className="border border-gray-300" />
+            </TabsContent>
+            <TabsContent value="genMask">
+              <img src={genImage} alt="Gen Mask" className="border border-gray-300" />
+            </TabsContent>
+          </Tabs>
+        </div>
+      )}
+
+      {/* Display Polygon Image */}
+      {polygonImage && (
+        <div className="mt-6">
+          <h2 className="text-xl font-semibold mb-2">Generated Polygon</h2>
+          <img src={polygonImage} alt="Polygon Plot" className="border border-gray-300" />
+        </div>
+      )}
     </div>
   )
 }
