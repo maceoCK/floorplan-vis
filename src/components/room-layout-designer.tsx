@@ -21,7 +21,7 @@ const ROOM_COLORS = {
 }
 
 export function RoomLayoutDesignerComponent() {
-  const [rooms, setRooms] = useState<Array<{ id: number, x: number, y: number, type: string, number: string, size: string }>>([])
+  const [rooms, setRooms] = useState<Array<{ id: number, x: number, y: number, type: string, number: string, size: string, name: string }>>([])
   const [connectivity, setConnectivity] = useState<{source: number, target: number, value: number}[]>([])
   const [boundary, setBoundary] = useState<Array<{ x: number, y: number, width: number, height: number }>>([])
   const [currentRoom, setCurrentRoom] = useState({ type: '', number: '', size: '' })
@@ -44,7 +44,8 @@ export function RoomLayoutDesignerComponent() {
         ...currentRoom, 
         id: rooms.length, // Ensure unique IDs
         x: Math.random() * 500, 
-        y: Math.random() * 500 
+        y: Math.random() * 500,
+        name: `${currentRoom.type} #${currentRoom.number}`
       }
       setRooms(prevRooms => [...prevRooms, newRoom])
       setCurrentRoom({ type: '', number: '', size: '' })
@@ -158,16 +159,16 @@ export function RoomLayoutDesignerComponent() {
   
 
   const drawConnectivity = () => {
-    const svg = d3.select(connectivitySvgRef.current)
-    svg.selectAll("*").remove()
+    const svg = d3.select(connectivitySvgRef.current);
+    svg.selectAll("*").remove(); // Clear previous drawings
 
-    const width = 500
-    const height = 500
+    const width = 500;
+    const height = 500;
 
     if (!simulationRef.current) {
       simulationRef.current = d3.forceSimulation()
         .force("link", d3.forceLink().id((d: any) => d.id).distance(200))
-        .force("charge", d3.forceManyBody().strength(-400)) // Adjusted for better spacing
+        .force("charge", d3.forceManyBody().strength(-40)) // Adjusted for better spacing
         .force("center", d3.forceCenter(width / 2, height / 2))
     }
 
@@ -198,14 +199,15 @@ export function RoomLayoutDesignerComponent() {
       .selectAll("circle")
       .data(rooms)
       .enter().append("circle")
-      .attr("r", 20)
+      .attr("r", 40)
       .attr("fill", (d: { type: string }) => ROOM_COLORS_DARK[d.type as keyof typeof ROOM_COLORS_DARK])
+     
       // Nodes are not draggable now
       // .call(d3.drag() ...)
 
     // Edge drawing variables
     let isDrawingEdge = false
-    let sourceNode: { id: number, x: number, y: number } | null = null
+    let sourceNode: { id: number, x: number, y: number, name: string } | null = null
     let tempEdge: any = null
 
     // Event handlers for edge creation
@@ -237,60 +239,36 @@ export function RoomLayoutDesignerComponent() {
       }
     })
 
-    node.on("mouseup", function(event: MouseEvent, targetNode: { id: number, x: number, y: number }) {
-      if (isDrawingEdge && sourceNode && targetNode && targetNode !== sourceNode) {
-        // Check if edge already exists
-        const edgeExists = connectivity.some(conn =>
-          {
-            if (sourceNode && targetNode) {
-            return (conn.source === sourceNode.id && conn.target === targetNode.id) ||
-              (conn.source === targetNode.id && conn.target === sourceNode.id)
-            }
-            return false
-          }
-        )
-        if (!edgeExists) {
-          // Add the new edge to connectivity
-          setConnectivity(prevConnectivity => {
-            if (sourceNode && targetNode) {
-              return [
-                ...prevConnectivity,
-              { source: sourceNode.id, target: targetNode.id, value: 1 }
-              ]
-            }
-            return prevConnectivity
-          })
-        }
-        else {
-          // Remove the edge from connectivity
-          setConnectivity(prevConnectivity => prevConnectivity.filter(conn =>
-            {
-              if (sourceNode && targetNode) {
-                return !(conn.source === sourceNode.id && conn.target === targetNode.id) &&
-                  !(conn.source === targetNode.id && conn.target === sourceNode.id)
-              }
-              return true
-            }
-          ))
-        }
-      }
+    
 
-      // Remove temporary edge
-      if (tempEdge) tempEdge.remove()
-      isDrawingEdge = false
-      sourceNode = null
-      tempEdge = null
+    svg.on("mouseup", (event: any) => {
 
-      event.stopPropagation()
-    })
-
-    svg.on("mouseup", function(event: any) {
       if (isDrawingEdge) {
-        // Remove temporary edge
+        const [x, y] = d3.pointer(event)
+        const targetNode = getNodeAtPosition(x, y, rooms)
+
+        if (targetNode) {
+          if (connectivity.find(c => c.source === sourceNode?.id && c.target === targetNode.id)) {  
+            // Edge already exists, remove it
+            setConnectivity(prevConnectivity => prevConnectivity.filter(c => {
+              if (sourceNode) {
+                return !(c.source === sourceNode.id && c.target === targetNode.id)
+              }
+              return false
+            }))
+          } else {
+            setConnectivity(prevConnectivity => {
+            if (sourceNode) {
+              return [...prevConnectivity, { source: sourceNode.id, target: targetNode.id, value: 1 }]
+              }
+              return prevConnectivity
+            })
+          }
+        }
         if (tempEdge) tempEdge.remove()
-        isDrawingEdge = false
-        sourceNode = null
-        tempEdge = null
+          isDrawingEdge = false
+          sourceNode = null
+          tempEdge = null
       }
     })
 
@@ -299,11 +277,13 @@ export function RoomLayoutDesignerComponent() {
       .selectAll("text")
       .data(rooms)
       .enter().append("text")
-      .text((d: { number: string }) => d.number)
+      .text((d: { name: string }) => d.name)
       .attr("font-size", "12px")
       .attr("text-anchor", "middle")
+      .style("user-select", "none")
+      .style("pointer-events", "none")
       .attr("dy", ".35em")
-      .attr("fill", "white")
+      .attr("fill", "black")
 
     simulation.on("tick", () => {
       link
@@ -323,6 +303,10 @@ export function RoomLayoutDesignerComponent() {
 
     // Restart the simulation
     simulation.alpha(1).restart()
+  }
+
+  function getNodeAtPosition(x: number, y: number, nodes: { id: number, x: number, y: number }[]) {
+    return nodes.find(node => Math.abs(node.x - x) < 20 && Math.abs(node.y - y) < 20);
   }
 
   const drawBoundary = () => {
@@ -362,8 +346,6 @@ export function RoomLayoutDesignerComponent() {
       const endY = e.clientY - rect.top
 
       const ctx = canvas.getContext('2d') as CanvasRenderingContext2D
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      drawBoundary()
 
       ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
       ctx.fillRect(
@@ -497,7 +479,7 @@ export function RoomLayoutDesignerComponent() {
           height={500}
           className="border border-gray-300"
         />
-        <p className="text-sm text-gray-600 mt-2">Drag nodes to reposition. Click on edges to toggle connections.</p>
+        <p className="text-sm text-gray-600 mt-2">Click and drag to create edges</p>
       </div>
 
       <div>
