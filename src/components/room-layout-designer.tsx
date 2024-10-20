@@ -11,18 +11,13 @@ import * as d3 from 'd3'
 import { Simulation, SimulationNodeDatum } from 'd3-force'
 import { ConnectivityGraph } from './connectivity-graph'
 import { BoundaryBox } from './boundary-box'
-import dotenv from 'dotenv'
-console.log('Backend URL:', process.env.NEXT_PUBLIC_BACKEND_URL)
-
-const ROOM_CLASS = {
-  "living_room": 1, "kitchen": 2, "bedroom": 3, "bathroom": 4, "balcony": 5, "entrance": 6,
-  "dining room": 7, "study room": 8, "storage": 10, "front door": 11, "unknown": 13, "interior_door": 12
-}
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Room, Connectivity, Boundary, ROOM_CLASS, ROOM_COLORS_DARK } from '@/app/utils'
 
 export function RoomLayoutDesignerComponent() {
-  const [rooms, setRooms] = useState<Array<{ id: number, x: number, y: number, type: string, number: string, size: string, name: string }>>([])
-  const [connectivity, setConnectivity] = useState<{source: number, target: number, value: number}[]>([])
-  const [boundary, setBoundary] = useState<Array<{ x: number, y: number, width: number, height: number }>>([])
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [connectivity, setConnectivity] = useState<Connectivity[]>([])
+  const [boundary, setBoundary] = useState<Boundary[]>([])
   const [currentRoom, setCurrentRoom] = useState({ type: '', number: '', size: '' })
 
   // New states for masks and image
@@ -57,10 +52,17 @@ export function RoomLayoutDesignerComponent() {
     }
   }
 
-  const convertBoundaryToCorners = (boundaryArray: Array<{x: number, y: number, width: number, height: number}> | null) => {
+  const convertBoundaryToCorners = (boundaryArray: Boundary[] | null) => {
     if (!boundaryArray || !Array.isArray(boundaryArray)) {
       return [];
     }
+    // normalize boundary coords (scaled to 0-1 from 0-500)
+    boundaryArray = boundaryArray.map((rect) => ({
+      x: rect.x / 500,
+      y: rect.y / 500,
+      width: rect.width / 500,
+      height: rect.height / 500
+    }))
     let corners = []
     for (const rect of boundaryArray) {
       corners.push({x: rect.x, y: rect.y})
@@ -161,7 +163,7 @@ export function RoomLayoutDesignerComponent() {
     if (!simulationRef.current) {
       simulationRef.current = d3.forceSimulation()
         .force("link", d3.forceLink().id((d: any) => d.id).distance(200))
-        .force("charge", d3.forceManyBody().strength(-40)) // Adjusted for better spacing
+        .force("charge", d3.forceManyBody().strength(-30)) // Adjusted for better spacing
         .force("center", d3.forceCenter(width / 2, height / 2))
     }
 
@@ -200,7 +202,7 @@ export function RoomLayoutDesignerComponent() {
 
     // Edge drawing variables
     let isDrawingEdge = false
-    let sourceNode: { id: number, x: number, y: number, name: string } | null = null
+    let sourceNode: Room | null = null
     let tempEdge: any = null
 
     // Event handlers for edge creation
@@ -241,18 +243,41 @@ export function RoomLayoutDesignerComponent() {
         const targetNode = getNodeAtPosition(x, y, rooms)
 
         if (targetNode) {
-          if (connectivity.find(c => c.source === sourceNode?.id && c.target === targetNode.id)) {  
+          if (connectivity.find(c => c.source.id === sourceNode?.id && c.target.id === targetNode.id)) {  
             // Edge already exists, remove it
             setConnectivity(prevConnectivity => prevConnectivity.filter(c => {
               if (sourceNode) {
-                return !(c.source === sourceNode.id && c.target === targetNode.id)
+                return !(c.source.id === sourceNode.id && c.target.id === targetNode.id)
               }
               return false
             }))
           } else {
             setConnectivity(prevConnectivity => {
-            if (sourceNode) {
-              return [...prevConnectivity, { source: sourceNode.id, target: targetNode.id, value: 1 }]
+              if (sourceNode) {
+                return [
+                  ...prevConnectivity,
+                  { 
+                    source: { 
+                      id: sourceNode.id, 
+                      x: sourceNode.x, 
+                      y: sourceNode.y, 
+                      type: sourceNode.type, 
+                      number: sourceNode.number, 
+                      size: sourceNode.size,
+                      name: sourceNode.name 
+                    }, 
+                    target: { 
+                      id: targetNode.id, 
+                      x: targetNode.x, 
+                      y: targetNode.y, 
+                      type: targetNode.type, 
+                      number: targetNode.number, 
+                      size: targetNode.size,
+                      name: targetNode.name  // Add this line
+                    }, 
+                    value: 1 
+                  }
+                ]
               }
               return prevConnectivity
             })
@@ -298,15 +323,8 @@ export function RoomLayoutDesignerComponent() {
     simulation.alpha(1).restart()
   }
 
-  function getNodeAtPosition(x: number, y: number, nodes: { id: number, x: number, y: number }[]) {
+  function getNodeAtPosition(x: number, y: number, nodes: Room[]) {
     return nodes.find(node => Math.abs(node.x - x) < 20 && Math.abs(node.y - y) < 20);
-  }
-
-  // Dark mode colors
-  const ROOM_COLORS_DARK = {
-    "living_room": "#FF6B6B", "kitchen": "#4ECDC4", "bedroom": "#45B7D1", "bathroom": "#66D7D1", 
-    "balcony": "#95E1D3", "entrance": "#FCE38A", "dining room": "#F38181", "study room": "#A8D8EA", 
-    "storage": "#AA96DA", "front door": "#FCBAD3", "unknown": "#FFFFD2", "interior_door": "#E3FDFD"
   }
 
   // Function to handle Generate Masks button click
@@ -474,7 +492,8 @@ export function RoomLayoutDesignerComponent() {
 
         {/* Data Output on the right */}
         <div className="w-1/2 ml-4">
-          <h2 className="text-xl font-semibold mb-2">Data Output</h2>
+        <h2 className="text-xl font-semibold mb-2">Data Output</h2>
+        <ScrollArea className="h-[800px]">
           <div className="grid grid-cols-1 gap-4">
             <div>
               <h3 className="font-semibold">Rooms:</h3>
@@ -489,6 +508,7 @@ export function RoomLayoutDesignerComponent() {
               <pre className="bg-slate-700 p-2 rounded text-slate-100">{JSON.stringify(convertBoundaryToCorners(boundary), null, 2)}</pre>
             </div>
           </div>
+        </ScrollArea>
         </div>
       </div>
 

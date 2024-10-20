@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
+import { Boundary } from '@/app/utils';
 
 interface BoundaryBoxProps {
-  boundary: Array<{ x: number; y: number; width: number; height: number }>;
-  setBoundary: React.Dispatch<React.SetStateAction<Array<{ x: number; y: number; width: number; height: number }>>>;
+  boundary: Boundary[];
+  setBoundary: React.Dispatch<React.SetStateAction<Boundary[]>>;
 }
 
 export function BoundaryBox({ boundary, setBoundary }: BoundaryBoxProps) {

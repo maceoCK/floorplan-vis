@@ -3,33 +3,12 @@
 import React, { useRef, useEffect } from 'react'
 import * as d3 from 'd3'
 import { Simulation, SimulationNodeDatum } from 'd3-force'
-
-interface Room {
-  id: number
-  x: number
-  y: number
-  type: string
-  number: string
-  size: string
-  name: string
-}
-
-interface Connectivity {
-  source: number
-  target: number
-  value: number
-}
+import { Room, Connectivity, ROOM_COLORS_DARK } from '@/app/utils'
 
 interface ConnectivityGraphProps {
   rooms: Room[]
   connectivity: Connectivity[]
   setConnectivity: React.Dispatch<React.SetStateAction<Connectivity[]>>
-}
-
-const ROOM_COLORS_DARK = {
-  "living_room": "#FF6B6B", "kitchen": "#4ECDC4", "bedroom": "#45B7D1", "bathroom": "#66D7D1", 
-  "balcony": "#95E1D3", "entrance": "#FCE38A", "dining room": "#F38181", "study room": "#A8D8EA", 
-  "storage": "#AA96DA", "front door": "#FCBAD3", "unknown": "#FFFFD2", "interior_door": "#E3FDFD"
 }
 
 export function ConnectivityGraph({ rooms, connectivity, setConnectivity }: ConnectivityGraphProps) {
@@ -119,23 +98,25 @@ export function ConnectivityGraph({ rooms, connectivity, setConnectivity }: Conn
         if (targetNode && sourceNode) {
           if (connectivity.find(c => {
             if (sourceNode && targetNode) {
-              return c.source === sourceNode.id && c.target === targetNode.id
+              return (c.source.id === sourceNode.id && c.target.id === targetNode.id) || (c.source.id === targetNode.id && c.target.id === sourceNode.id)
             }
             return false
           })) {  
+            console.log("Edge already exists")
             // Edge already exists, remove it
             setConnectivity(prevConnectivity => prevConnectivity.filter(c => {
               if (sourceNode && targetNode) {
-                return !(c.source === sourceNode.id && c.target === targetNode.id)
+                return !(c.source.id === sourceNode.id && c.target.id === targetNode.id || c.source.id === targetNode.id && c.target.id === sourceNode.id)
               }
               return false
             }))
           } else {
+
             setConnectivity(prevConnectivity => {
               if (sourceNode && targetNode) {
                 return [
                     ...prevConnectivity,
-                    { source: sourceNode.id, target: targetNode.id, value: 1 }
+                    { source: sourceNode, target: targetNode, value: 1 }
                 ]
               }
               return prevConnectivity
